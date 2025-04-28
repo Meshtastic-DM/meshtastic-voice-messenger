@@ -73,7 +73,7 @@ pip install meshtastic pyaudio numpy
 4. Run the application:
 
 ```plaintext
-python meshtastic_voice_messenger.py
+python app.py
 ```
 
 
