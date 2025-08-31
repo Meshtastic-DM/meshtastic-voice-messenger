@@ -528,6 +528,8 @@ class MeshtasticVoiceMessenger:
             
             frames = []
             
+            # Record in chunks to allow stopping early if needed 
+            # self.rate / self.chunk * self.record_seconds, means number of chunks to read 
             for i in range(0, int(self.rate / self.chunk * self.record_seconds)):
                 if not self.recording:
                     break
