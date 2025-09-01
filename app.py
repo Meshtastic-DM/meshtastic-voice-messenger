@@ -25,6 +25,9 @@ class MeshtasticVoiceMessenger:
         master.title("Meshtastic Voice Messenger")
         master.geometry("700x700")
         master.minsize(600, 600)
+
+        self.cancel_send_event = threading.Event()
+        self.stop_send_button = None  # will hold the Stop Sending button
         
         # Configure the grid to expand properly
         master.columnconfigure(0, weight=1)
@@ -151,6 +154,10 @@ class MeshtasticVoiceMessenger:
         # Test Button
         self.test_button = ttk.Button(voice_frame, text="Send Test Message", command=self.send_test_message, width=20)
         self.test_button.grid(row=0, column=2, padx=5, pady=5)
+
+        # Stop Sending Button
+        self.stop_send_button = ttk.Button(voice_frame, text="Stop Sending", command=self.stop_sending, width=20, state=tk.DISABLED)
+        self.stop_send_button.grid(row=0, column=3, padx=5, pady=5)
         
         # Messages Frame
         messages_frame = ttk.LabelFrame(main_frame, text="Voice Messages", padding="10")
@@ -815,6 +822,8 @@ class MeshtasticVoiceMessenger:
             return
             
         try:
+            self.cancel_send_event.clear()
+
             # Update chunk size from dropdown
             self.update_chunk_size()
             
@@ -842,6 +851,8 @@ class MeshtasticVoiceMessenger:
                 # Log the size
                 self.log(f"Voice message size: {len(json_payload)} bytes")
                 
+                self.stop_send_button.config(state=tk.NORMAL)
+
                 # Send the message
                 self.log("Sending voice message...")
                 self.interface.sendData(
@@ -851,6 +862,7 @@ class MeshtasticVoiceMessenger:
                     wantAck=True
                 )
                 self.log("Voice message sent successfully")
+                self.stop_send_button.config(state=tk.DISABLED)
                 
             else:
                 # Need to chunk the message
@@ -861,6 +873,7 @@ class MeshtasticVoiceMessenger:
             
         except Exception as e:
             self.log(f"Error sending voice message: {str(e)}")
+            self.stop_send_button.config(state=tk.DISABLED)
             messagebox.showerror("Error", f"Failed to send voice message: {str(e)}")
             self.sending_chunks = False
 
@@ -876,68 +889,149 @@ class MeshtasticVoiceMessenger:
         
         # Set flag to prevent multiple sends at once
         self.sending_chunks = True
+        self.stop_send_button.config(state=tk.NORMAL)
         
         # Start sending chunks in a separate thread
         threading.Thread(target=self.send_chunks_thread, 
                         args=(chunk_id, encoded_data, total_chunks),
                         daemon=True).start()
         
+#     def send_chunks_thread(self, chunk_id, encoded_data, total_chunks):
+#         """Send chunks of a message sequentially with retries"""
+#         try:
+#             # Send each chunk with retries
+#             for i in range(total_chunks):
+#                 # Calculate chunk boundaries
+#                 start = i * self.max_chunk_size
+#                 end = min(start + self.max_chunk_size, len(encoded_data))
+#                 chunk_data = encoded_data[start:end]
+                
+#                 # Create chunk payload
+#                 payload = {
+#                     "chunk_id": chunk_id,
+#                     "chunk_num": i + 1,
+#                     "total_chunks": total_chunks,
+#                     "data": chunk_data
+#                 }
+                
+#                 # Convert to JSON string then to bytes
+#                 json_payload = json.dumps(payload).encode('utf-8')
+                
+#                 # Try to send the chunk with retries
+#                 success = False
+#                 for retry in range(self.chunk_retry_count):
+#                     try:
+#                         # Send the chunk
+#                         self.log(f"Sending chunk {i+1}/{total_chunks}...")
+#                         self.interface.sendData(
+#                             json_payload,
+#                             destinationId=meshtastic.BROADCAST_ADDR,
+#                             portNum=256,  # PRIVATE_APP port
+#                             wantAck=True
+#                         )
+                        
+#                         # Wait a bit to let the network process the message
+# #                        time.sleep(0.5)
+                        
+#                         success = True
+#                         break
+#                     except Exception as e:
+#                         self.log(f"Error sending chunk {i+1}, retry {retry+1}: {str(e)}")
+#                         time.sleep(self.chunk_retry_delay)
+                
+#                 if not success:
+#                     self.log(f"Failed to send chunk {i+1} after {self.chunk_retry_count} retries")
+                
+#                 # Wait between chunks to avoid flooding the network
+#                 time.sleep(1)
+                
+#             self.log(f"All {total_chunks} chunks sent")
+            
+#         except Exception as e:
+#             self.log(f"Error sending chunks: {str(e)}")
+#         finally:
+#             self.sending_chunks = False
+#             self.master.after(0, lambda: self.send_button.config(state=tk.NORMAL))
+
     def send_chunks_thread(self, chunk_id, encoded_data, total_chunks):
         """Send chunks of a message sequentially with retries"""
         try:
-            # Send each chunk with retries
             for i in range(total_chunks):
-                # Calculate chunk boundaries
+                # Check for cancellation before preparing each chunk
+                if self.cancel_send_event.is_set():
+                    self.log("Send cancelled by user.")
+                    break
+
                 start = i * self.max_chunk_size
                 end = min(start + self.max_chunk_size, len(encoded_data))
                 chunk_data = encoded_data[start:end]
-                
-                # Create chunk payload
+
                 payload = {
                     "chunk_id": chunk_id,
                     "chunk_num": i + 1,
                     "total_chunks": total_chunks,
                     "data": chunk_data
                 }
-                
-                # Convert to JSON string then to bytes
                 json_payload = json.dumps(payload).encode('utf-8')
-                
-                # Try to send the chunk with retries
+
                 success = False
                 for retry in range(self.chunk_retry_count):
+                    if self.cancel_send_event.is_set():
+                        self.log("Send cancelled during retry loop.")
+                        break
                     try:
-                        # Send the chunk
                         self.log(f"Sending chunk {i+1}/{total_chunks}...")
                         self.interface.sendData(
                             json_payload,
                             destinationId=meshtastic.BROADCAST_ADDR,
-                            portNum=256,  # PRIVATE_APP port
+                            portNum=256,
                             wantAck=True
                         )
-                        
-                        # Wait a bit to let the network process the message
-#                        time.sleep(0.5)
-                        
                         success = True
                         break
                     except Exception as e:
                         self.log(f"Error sending chunk {i+1}, retry {retry+1}: {str(e)}")
                         time.sleep(self.chunk_retry_delay)
-                
+
+                if self.cancel_send_event.is_set():
+                    break
+
                 if not success:
                     self.log(f"Failed to send chunk {i+1} after {self.chunk_retry_count} retries")
-                
-                # Wait between chunks to avoid flooding the network
-                time.sleep(1)
-                
-            self.log(f"All {total_chunks} chunks sent")
-            
+                    # Optional: continue or abort; here we continue to try later chunks
+
+                # Throttle between chunks (also abortable)
+                for _ in range(10):  # 1s sleep in 0.1s steps, so we can cancel quickly
+                    if self.cancel_send_event.is_set():
+                        break
+                    time.sleep(0.1)
+                if self.cancel_send_event.is_set():
+                    break
+
+            if not self.cancel_send_event.is_set():
+                self.log(f"All {total_chunks} chunks sent")
+
         except Exception as e:
             self.log(f"Error sending chunks: {str(e)}")
         finally:
             self.sending_chunks = False
-            self.master.after(0, lambda: self.send_button.config(state=tk.NORMAL))
+            # Ensure UI is cleaned up no matter what
+            self.master.after(0, lambda: (
+                self.send_button.config(state=tk.NORMAL),
+                self.stop_send_button.config(state=tk.DISABLED)
+            ))
+
+
+    def stop_sending(self):
+        """Request cancellation of an in-progress send."""
+        if self.sending_chunks:
+            self.log("Cancelling send...")
+            self.cancel_send_event.set()
+        else:
+            # Not chunking; nothing to cancel
+            self.log("No chunked send in progress.")
+        # UI cleanup regardless
+        self.stop_send_button.config(state=tk.DISABLED)
 
 def main():
     root = tk.Tk()
