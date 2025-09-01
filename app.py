@@ -527,7 +527,7 @@ class MeshtasticVoiceMessenger:
             self.log(f"Recording for {self.record_seconds} seconds at {self.rate}Hz...")
             
             frames = []
-            
+
             # Record in chunks to allow stopping early if needed 
             # self.rate / self.chunk * self.record_seconds, means number of chunks to read 
             for i in range(0, int(self.rate / self.chunk * self.record_seconds)):
@@ -759,6 +759,7 @@ class MeshtasticVoiceMessenger:
             self.log(f"Error compressing dynamic range: {str(e)}")
             return frames  # Return original frames if there's an error
 
+    # Downsample audio to a lower sample rate because audioop.ratecv is not always available
     def downsample_audio(self, frames, channels, sample_width, original_rate, target_rate):
         """Downsample audio to a lower sample rate"""
         try:
