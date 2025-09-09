@@ -11,7 +11,7 @@ from datetime import datetime
 
 from transmission import MeshtasticTransport
 from encoding.codec2_codec import encode_to_codec2
-from encoding.decoder import decode_auto
+from encoding.decoding import decode_auto
 from encoding.voice_compression import ultra_compress_wav  # legacy (unchanged)
 
 class AppGUI:
